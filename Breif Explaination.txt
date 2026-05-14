@@ -1,0 +1,221 @@
+1. Cell 1: Import Libraries
+
+What was done:
+Imported pandas, numpy, scikit-learn preprocessing tools, joblib, json, and Path.
+
+Why:
+These are required for:
+data loading/cleaning (pandas, numpy)
+pipeline building (Pipeline, ColumnTransformer, SimpleImputer, OneHotEncoder, StandardScaler)
+saving reusable objects and metadata (joblib, json, Path)
+
+How:
+Standard Python imports at the top to make all later cells reusable and clean.
+
+
+2. Cell 2: Load Raw Data + Version Setup
+
+What was done:
+Defined:
+DATA_VERSION = "v1"
+raw data path
+artifact folder path (v1)
+target column (Revenue)
+Loaded the CSV into df_raw.
+Created version folder if not already present.
+
+Why:
+Versioning ensures reproducibility.
+If you change logic later, create v2, v3, etc. without overwriting old outputs.
+Keeps team workflow organized.
+
+How:
+Path(...).mkdir(parents=True, exist_ok=True)
+pd.read_csv(...)
+Quick shape print and head() for sanity check.
+
+
+3. Cell 3: Validate Input Data
+
+What was done:
+Created an explicit expected_columns list (from your project spec).
+Checked for missing required columns.
+Built df as a clean copy with only required columns.
+Computed data quality summary:
+duplicate count
+missing values by column
+target distribution (Revenue)
+
+Why:
+Prevents silent downstream bugs if schema changes.
+Gives team visibility into raw data quality before transformations.
+
+How:
+Set difference for missing columns.
+Printed a readable validation report.
+
+
+4. Cell 4: Clean + Feature Engineering
+
+This is the most important transformation cell.
+
+4.1 Duplicates
+
+What:
+Duplicates are counted and reported, but kept.
+
+Why:
+Each row represents a user session; identical rows can still be valid sessions.
+You requested not to remove them.
+
+4.2 Boolean normalization
+
+What:
+Weekend and Revenue mapped to numeric 0/1 using bool_map.
+
+Why:
+Models need numeric target/features.
+Handles variations like "TRUE", "False", Python True/False, and 0/1 safely.
+
+4.3 Month numeric mapping
+
+What:
+Month converted to Month_num.
+
+Why:
+Needed to build cyclic seasonal features.
+
+4.4 Engineered features (from your doc/spec intent)
+
+What:
+TotalSessionDuration = sum of three duration columns
+ProductInfoRatio = ProductRelated / (Informational + 1)
+EngagementScore = PageValues / (TotalSessionDuration + 1)
+
+Why:
+Captures richer behavior patterns:
+total browsing time
+shopping intent focus
+value-per-time signal
++1 avoids divide-by-zero errors and keeps stable values.
+
+4.5 Cyclic seasonality
+
+What:
+Created:
+Month_sin
+Month_cos
+Then removed Month_num and original text Month.
+
+Why:
+Month is cyclic (Dec is close to Jan).
+Sin/cos encode cyclic distance correctly.
+Dropping text Month prevents numeric pipeline errors ('Feb' string in median imputer), which you hit and we fixed.
+
+4.6 Final safety checks
+
+What:
+Ensured target has no missing values.
+Cast Revenue and Weekend to integer.
+
+Why:
+Guarantees clean target and stable downstream model behavior.
+
+
+5. Cell 5: Build Preprocessing Pipeline
+
+What was done:
+Split into:
+X (features)
+y (target)
+Defined feature groups:
+Categorical: VisitorType, OperatingSystems, Browser, Region, TrafficType
+Numerical: all remaining columns (including engineered and cyclic month features)
+Created two pipelines:
+numeric: median imputation + standardization
+categorical: most-frequent imputation + one-hot encoding
+Combined with ColumnTransformer.
+
+Why:
+Different data types need different preprocessing.
+Numeric scaling helps many ML algorithms.
+Categorical one-hot encoding avoids false numeric ordering (very important for columns like Region and OperatingSystems).
+
+How:
+Pipeline(...) for each branch.
+ColumnTransformer(...) to apply both in one reusable object (preprocessor).
+
+
+6. Cell 6: Transform Data + Drift Analysis
+
+6.1 Apply transformations
+
+What:
+X_processed = preprocessor.fit_transform(X)
+Why
+Converts raw feature table into model-ready matrix.
+
+6.2 Output feature names
+
+What:
+Built robust logic to extract encoded feature names across scikit-learn versions.
+
+Why:
+Different environments may expose feature names differently.
+This prevents compatibility errors when teammates run on slightly different sklearn versions.
+
+6.3 Build processed DataFrame
+
+What:
+Created X_processed_df with transformed values + proper column names.
+
+Why:
+Easier to inspect, debug, and save.
+
+6.4 Drift check (PSI)
+
+What:
+Split dataset into first 70% (reference) and last 30% (current).
+Calculated PSI per numerical feature.
+Created drift_report sorted by highest PSI.
+
+Why:
+Helps monitor feature distribution changes (data drift) for production readiness.
+Flags high-risk features early.
+
+How:
+Custom calculate_psi(...) function:
+binning using reference quantiles
+compare proportions
+compute PSI formula
+
+
+7. Cell 7: Save Artifacts and Metadata
+
+What was done:
+Saved all outputs under version folder (v1):
+preprocessor.joblib
+X_processed.csv
+y.csv
+drift_report.csv
+metadata.json
+metadata.json includes:
+data version
+total rows
+feature counts before/after encoding
+target name
+positive class rate
+engineered feature list
+number of high-drift features
+
+Why:
+Makes the pipeline reproducible, reviewable, and deployable.
+Teammates can reuse exactly the same preprocessor for inference.
+Metadata gives a quick audit summary.
+
+
+Final Design Decisions
+Duplicates are kept (reported only).
+OperatingSystems, Region, TrafficType treated as categorical (encoded), even if stored as numbers in CSV.
+Month handled via cyclic features (Month_sin, Month_cos) and original month text removed.
+Pipeline is versioned and artifact-driven (v1).

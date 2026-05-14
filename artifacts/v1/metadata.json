@@ -1,0 +1,17 @@
+{
+  "data_version": "v1",
+  "description": "Online Shoppers - Preprocessed & Ready for ML",
+  "total_rows": 12330,
+  "total_features_before_encoding": 21,
+  "total_features_after_encoding": 69,
+  "target_name": "Revenue",
+  "positive_rate": 15.47,
+  "new_engineered_features": [
+    "TotalSessionDuration",
+    "ProductInfoRatio",
+    "EngagementScore",
+    "Month_sin",
+    "Month_cos"
+  ],
+  "features_with_high_drift": 3
+}
