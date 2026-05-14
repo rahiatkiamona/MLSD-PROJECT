@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -62,6 +63,25 @@ CATEGORICAL_COLUMNS = ["VisitorType", "OperatingSystems", "Browser", "Region", "
 MONTH_OPTIONS = ["Jan", "Feb", "Mar", "Apr", "May", "June", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 BOOL_MAP = {"TRUE": 1, "FALSE": 0, "True": 1, "False": 0, True: 1, False: 0, 1: 1, 0: 0}
 MONTH_TO_NUM = {month: index + 1 for index, month in enumerate(MONTH_OPTIONS)}
+SERVING_RAW_INPUT_COLUMNS = [
+    "Administrative",
+    "Administrative_Duration",
+    "Informational",
+    "Informational_Duration",
+    "ProductRelated",
+    "ProductRelated_Duration",
+    "BounceRates",
+    "ExitRates",
+    "PageValues",
+    "SpecialDay",
+    "OperatingSystems",
+    "Browser",
+    "Region",
+    "TrafficType",
+    "VisitorType",
+    "Weekend",
+    "Month",
+]
 
 CALM_BG = "#f7f5ef"
 INK = "#0f172a"
@@ -366,7 +386,7 @@ def sidebar_nav(metadata: dict, metrics: dict) -> str:
     st.sidebar.markdown("## Navigation")
     page = st.sidebar.radio(
         "Open a section",
-        ["Home", "Data Lab", "Prediction Studio", "Monitoring Center", "Deploy"],
+        ["Home", "Data Lab", "Prediction Studio", "Serving Hub", "Monitoring Center", "Deploy"],
         index=0,
     )
     st.sidebar.markdown(
@@ -688,6 +708,28 @@ def assemble_prediction_frame(values: dict) -> pd.DataFrame:
     return frame[MODEL_INPUT_COLUMNS].copy()
 
 
+def prepare_serving_frame_from_raw(input_df: pd.DataFrame) -> pd.DataFrame:
+    missing = [col for col in SERVING_RAW_INPUT_COLUMNS if col not in input_df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns for serving: {missing}")
+
+    frame = input_df[SERVING_RAW_INPUT_COLUMNS].copy()
+    frame["Weekend"] = frame["Weekend"].map(BOOL_MAP).fillna(0).astype(int)
+    frame["Month_num"] = frame["Month"].map(MONTH_TO_NUM)
+    if frame["Month_num"].isna().any():
+        frame["Month_num"] = frame["Month_num"].fillna(frame["Month_num"].mode().iloc[0])
+
+    frame["TotalSessionDuration"] = (
+        frame["Administrative_Duration"] + frame["Informational_Duration"] + frame["ProductRelated_Duration"]
+    )
+    frame["ProductInfoRatio"] = frame["ProductRelated"] / (frame["Informational"] + 1)
+    frame["EngagementScore"] = frame["PageValues"] / (frame["TotalSessionDuration"] + 1)
+    frame["Month_sin"] = np.sin(2 * np.pi * frame["Month_num"] / 12.0)
+    frame["Month_cos"] = np.cos(2 * np.pi * frame["Month_num"] / 12.0)
+    frame = frame.drop(columns=["Month", "Month_num"], errors="ignore")
+    return frame[MODEL_INPUT_COLUMNS].copy()
+
+
 def render_data_lab(raw_df: pd.DataFrame, processed_df: pd.DataFrame, target: pd.Series) -> None:
     make_title(
         "Data Lab",
@@ -886,6 +928,204 @@ def render_prediction_studio(raw_df: pd.DataFrame, model: LogisticRegression, pr
         st.dataframe(feature_frame, use_container_width=True)
 
 
+def render_serving_hub(raw_df: pd.DataFrame, model: LogisticRegression, preprocessor) -> None:
+    make_title(
+        "Serving Hub",
+        "Production-style serving interface: real-time prediction, decision policy, and batch inference with exportable results.",
+    )
+
+    st.markdown("### Serving Modes")
+    rt_col, batch_col, policy_col = st.columns(3)
+    with rt_col:
+        st.markdown(
+            """
+            <div class='mini-card'>
+                <h4>Real-time API</h4>
+                <div class='step-text'>One visitor session in, one purchase intent score out, with millisecond-level latency.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with batch_col:
+        st.markdown(
+            """
+            <div class='mini-card'>
+                <h4>Batch Inference</h4>
+                <div class='step-text'>Upload multiple sessions, score all, and download a result file for campaign operations.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with policy_col:
+        st.markdown(
+            """
+            <div class='mini-card'>
+                <h4>Decision Logic</h4>
+                <div class='step-text'>Apply a probability threshold to trigger actions such as discount, personalization, or no action.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    tabs = st.tabs(["Real-time Request", "Batch Scoring", "API Contract"])
+
+    with tabs[0]:
+        st.markdown("#### Real-time Request Simulator")
+        defaults = build_input_defaults(raw_df)
+        threshold = st.slider("Serving threshold", 0.05, 0.95, 0.50, 0.01, key="serve_threshold")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            administrative = st.number_input("Administrative pages", 0, 100, int(defaults["Administrative"]), 1, key="s_admin")
+            administrative_duration = st.number_input("Administrative duration", 0.0, value=float(defaults["Administrative_Duration"]), step=1.0, key="s_admin_d")
+            informational = st.number_input("Informational pages", 0, 50, int(defaults["Informational"]), 1, key="s_info")
+            informational_duration = st.number_input("Informational duration", 0.0, value=float(defaults["Informational_Duration"]), step=1.0, key="s_info_d")
+        with c2:
+            product_related = st.number_input("Product pages", 0, 300, int(defaults["ProductRelated"]), 1, key="s_prod")
+            product_related_duration = st.number_input("Product duration", 0.0, value=float(defaults["ProductRelated_Duration"]), step=1.0, key="s_prod_d")
+            bounce_rates = st.slider("Bounce rate", 0.0, 1.0, float(defaults["BounceRates"]), 0.01, key="s_bounce")
+            exit_rates = st.slider("Exit rate", 0.0, 1.0, float(defaults["ExitRates"]), 0.01, key="s_exit")
+        with c3:
+            page_values = st.number_input("Page value", 0.0, value=float(defaults["PageValues"]), step=1.0, key="s_page")
+            special_day = st.slider("Special day", 0.0, 1.0, float(defaults["SpecialDay"]), 0.01, key="s_special")
+            month = st.selectbox("Month", MONTH_OPTIONS, index=MONTH_OPTIONS.index(defaults["Month"]), key="s_month")
+            weekend = st.selectbox("Weekend", [0, 1], index=int(defaults["Weekend"]), key="s_weekend")
+
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            operating_system = st.selectbox("Operating system", sorted(raw_df["OperatingSystems"].unique().tolist()), key="s_os")
+            browser = st.selectbox("Browser", sorted(raw_df["Browser"].unique().tolist()), key="s_browser")
+        with m2:
+            region = st.selectbox("Region", sorted(raw_df["Region"].unique().tolist()), key="s_region")
+            traffic_type = st.selectbox("Traffic type", sorted(raw_df["TrafficType"].unique().tolist()), key="s_traffic")
+        with m3:
+            visitor_type = st.selectbox("Visitor type", sorted(raw_df["VisitorType"].unique().tolist()), key="s_visitor")
+            run_rt = st.button("Run real-time inference", type="primary")
+
+        if run_rt:
+            payload = {
+                "Administrative": administrative,
+                "Administrative_Duration": administrative_duration,
+                "Informational": informational,
+                "Informational_Duration": informational_duration,
+                "ProductRelated": product_related,
+                "ProductRelated_Duration": product_related_duration,
+                "BounceRates": bounce_rates,
+                "ExitRates": exit_rates,
+                "PageValues": page_values,
+                "SpecialDay": special_day,
+                "OperatingSystems": operating_system,
+                "Browser": browser,
+                "Region": region,
+                "TrafficType": traffic_type,
+                "VisitorType": visitor_type,
+                "Weekend": weekend,
+                "Month": month,
+            }
+            feature_frame = assemble_prediction_frame(payload)
+
+            t0 = time.perf_counter()
+            transformed = preprocessor.transform(feature_frame)
+            score = float(model.predict_proba(transformed)[0, 1])
+            decision = int(score >= threshold)
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                st.metric("Purchase probability", f"{score:.2%}")
+            with r2:
+                st.metric("Decision", "Purchase" if decision else "No Purchase")
+            with r3:
+                st.metric("Latency", f"{latency_ms:.2f} ms")
+
+            response = {
+                "purchase_probability": round(score, 6),
+                "decision": "purchase" if decision else "no_purchase",
+                "threshold": round(float(threshold), 2),
+                "latency_ms": round(float(latency_ms), 3),
+            }
+            st.markdown("##### API-style response")
+            st.code(json.dumps(response, indent=2), language="json")
+
+    with tabs[1]:
+        st.markdown("#### Batch Scoring")
+        st.write("Upload a CSV with raw serving columns and get predictions for all rows.")
+        st.caption("Required columns: " + ", ".join(SERVING_RAW_INPUT_COLUMNS))
+
+        uploaded = st.file_uploader("Upload batch CSV", type=["csv"], key="batch_upload")
+        threshold_batch = st.slider("Batch decision threshold", 0.05, 0.95, 0.50, 0.01, key="batch_threshold")
+
+        if uploaded is not None:
+            try:
+                batch_df = pd.read_csv(uploaded)
+                serving_frame = prepare_serving_frame_from_raw(batch_df)
+
+                t0 = time.perf_counter()
+                transformed = preprocessor.transform(serving_frame)
+                proba = model.predict_proba(transformed)[:, 1]
+                latency_ms = (time.perf_counter() - t0) * 1000.0
+
+                result_df = batch_df.copy()
+                result_df["purchase_probability"] = proba
+                result_df["decision"] = np.where(proba >= threshold_batch, "purchase", "no_purchase")
+
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("Rows scored", f"{len(result_df):,}")
+                with c2:
+                    st.metric("Avg probability", f"{result_df['purchase_probability'].mean():.2%}")
+                with c3:
+                    st.metric("Batch latency", f"{latency_ms:.2f} ms")
+
+                st.dataframe(result_df.head(20), use_container_width=True)
+                csv_bytes = result_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "Download scored results",
+                    data=csv_bytes,
+                    file_name="batch_predictions.csv",
+                    mime="text/csv",
+                )
+            except Exception as exc:
+                st.error(f"Batch scoring failed: {exc}")
+
+    with tabs[2]:
+        st.markdown("#### API Contract (example)")
+        request_example = {
+            "Administrative": 2,
+            "Administrative_Duration": 35.0,
+            "Informational": 0,
+            "Informational_Duration": 0.0,
+            "ProductRelated": 28,
+            "ProductRelated_Duration": 980.0,
+            "BounceRates": 0.01,
+            "ExitRates": 0.04,
+            "PageValues": 20.0,
+            "SpecialDay": 0.0,
+            "OperatingSystems": 2,
+            "Browser": 2,
+            "Region": 1,
+            "TrafficType": 2,
+            "VisitorType": "Returning_Visitor",
+            "Weekend": 0,
+            "Month": "Nov",
+        }
+        response_example = {
+            "purchase_probability": 0.74231,
+            "decision": "purchase",
+            "threshold": 0.5,
+            "latency_ms": 7.12,
+        }
+        st.markdown("**POST /predict**")
+        st.code(json.dumps(request_example, indent=2), language="json")
+        st.markdown("**Response 200**")
+        st.code(json.dumps(response_example, indent=2), language="json")
+        st.markdown("**Decision policy**")
+        st.code(
+            "if purchase_probability >= threshold: action = 'targeted_offer'\nelse: action = 'no_intervention'",
+            language="python",
+        )
+
+
 
 def render_monitoring_center(metadata: dict, drift_report: pd.DataFrame, metrics: dict) -> None:
     make_title(
@@ -1050,6 +1290,8 @@ def main() -> None:
         render_data_lab(raw_df, processed_frame, target)
     elif page == "Prediction Studio":
         render_prediction_studio(raw_df, model, preprocessor, metrics)
+    elif page == "Serving Hub":
+        render_serving_hub(raw_df, model, preprocessor)
     elif page == "Monitoring Center":
         render_monitoring_center(metadata, drift_report, metrics)
     elif page == "Deploy":
