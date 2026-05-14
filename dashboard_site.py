@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 ROOT = Path(__file__).resolve().parent
-ARTIFACT_DIR = ROOT / "artifacts" / "v1"
+ARTIFACT_ROOT = ROOT / "artifacts"
 RAW_DATA_PATH = ROOT / "online_shoppers_intention.csv"
 
 MODEL_INPUT_COLUMNS = [
@@ -72,6 +72,20 @@ SOFT_BLUE = "#dbeafe"
 SOFT_GREEN = "#d1fae5"
 SOFT_AMBER = "#fef3c7"
 SOFT_SLATE = "#e2e8f0"
+
+
+def version_sort_key(version_name: str) -> tuple[int, str]:
+    if version_name.lower().startswith("v") and version_name[1:].isdigit():
+        return (int(version_name[1:]), version_name)
+    return (-1, version_name)
+
+
+def get_available_versions() -> list[str]:
+    versions = [d.name for d in ARTIFACT_ROOT.iterdir() if d.is_dir()]
+    versions.sort(key=version_sort_key)
+    if not versions:
+        raise FileNotFoundError("No artifact versions found in artifacts/ folder.")
+    return versions
 
 
 def inject_styles() -> None:
@@ -218,14 +232,14 @@ def inject_styles() -> None:
 
 
 @st.cache_data(show_spinner=False)
-def load_metadata() -> dict:
-    with open(ARTIFACT_DIR / "metadata.json", "r", encoding="utf-8") as f:
+def load_metadata(artifact_dir: Path) -> dict:
+    with open(artifact_dir / "metadata.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 @st.cache_data(show_spinner=False)
-def load_drift_report() -> pd.DataFrame:
-    return pd.read_csv(ARTIFACT_DIR / "drift_report.csv")
+def load_drift_report(artifact_dir: Path) -> pd.DataFrame:
+    return pd.read_csv(artifact_dir / "drift_report.csv")
 
 
 @st.cache_data(show_spinner=False)
@@ -234,13 +248,13 @@ def load_raw_data() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_processed_data() -> pd.DataFrame:
-    return pd.read_csv(ARTIFACT_DIR / "X_processed.csv")
+def load_processed_data(artifact_dir: Path) -> pd.DataFrame:
+    return pd.read_csv(artifact_dir / "X_processed.csv")
 
 
 @st.cache_data(show_spinner=False)
-def load_target() -> pd.Series:
-    return pd.read_csv(ARTIFACT_DIR / "y.csv").iloc[:, 0]
+def load_target(artifact_dir: Path) -> pd.Series:
+    return pd.read_csv(artifact_dir / "y.csv").iloc[:, 0]
 
 
 @st.cache_data(show_spinner=False)
@@ -1069,7 +1083,7 @@ def render_monitoring_center(metadata: dict, drift_report: pd.DataFrame, metrics
             </div>
             <div class='mini-card'>
                 <h4>Current version</h4>
-                <div class='step-text'>The current version in this project is <span class='mono'>v1</span>.</div>
+                <div class='step-text'>The current version in this project is <span class='mono'>{metadata['data_version']}</span>.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1188,16 +1202,20 @@ def render_deploy_page(metadata: dict) -> None:
 
 def main() -> None:
     inject_styles()
-    metadata = load_metadata()
-    drift_report = load_drift_report()
+    versions = get_available_versions()
+    selected_version = st.sidebar.selectbox("Artifact version", versions, index=len(versions) - 1)
+    artifact_dir = ARTIFACT_ROOT / selected_version
+
+    metadata = load_metadata(artifact_dir)
+    drift_report = load_drift_report(artifact_dir)
     raw_df = load_raw_data()
-    processed_df = load_processed_data()
-    target = load_target()
+    processed_df = load_processed_data(artifact_dir)
+    target = load_target(artifact_dir)
 
     clean_frame = clean_training_frame(raw_df)
     preprocessor = build_preprocessor(clean_frame)
     processed_matrix = preprocessor.transform(clean_frame)
-    processed_frame = pd.DataFrame(processed_matrix, columns=load_processed_data().columns, index=clean_frame.index)
+    processed_frame = pd.DataFrame(processed_matrix, columns=processed_df.columns, index=clean_frame.index)
 
     model, metrics, _ = train_demo_model(processed_frame, target)
     page = sidebar_nav(metadata, metrics)
