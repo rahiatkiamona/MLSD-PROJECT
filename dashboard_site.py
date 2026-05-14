@@ -63,25 +63,6 @@ CATEGORICAL_COLUMNS = ["VisitorType", "OperatingSystems", "Browser", "Region", "
 MONTH_OPTIONS = ["Jan", "Feb", "Mar", "Apr", "May", "June", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 BOOL_MAP = {"TRUE": 1, "FALSE": 0, "True": 1, "False": 0, True: 1, False: 0, 1: 1, 0: 0}
 MONTH_TO_NUM = {month: index + 1 for index, month in enumerate(MONTH_OPTIONS)}
-SERVING_RAW_INPUT_COLUMNS = [
-    "Administrative",
-    "Administrative_Duration",
-    "Informational",
-    "Informational_Duration",
-    "ProductRelated",
-    "ProductRelated_Duration",
-    "BounceRates",
-    "ExitRates",
-    "PageValues",
-    "SpecialDay",
-    "OperatingSystems",
-    "Browser",
-    "Region",
-    "TrafficType",
-    "VisitorType",
-    "Weekend",
-    "Month",
-]
 
 CALM_BG = "#f7f5ef"
 INK = "#0f172a"
@@ -708,28 +689,6 @@ def assemble_prediction_frame(values: dict) -> pd.DataFrame:
     return frame[MODEL_INPUT_COLUMNS].copy()
 
 
-def prepare_serving_frame_from_raw(input_df: pd.DataFrame) -> pd.DataFrame:
-    missing = [col for col in SERVING_RAW_INPUT_COLUMNS if col not in input_df.columns]
-    if missing:
-        raise ValueError(f"Missing required columns for serving: {missing}")
-
-    frame = input_df[SERVING_RAW_INPUT_COLUMNS].copy()
-    frame["Weekend"] = frame["Weekend"].map(BOOL_MAP).fillna(0).astype(int)
-    frame["Month_num"] = frame["Month"].map(MONTH_TO_NUM)
-    if frame["Month_num"].isna().any():
-        frame["Month_num"] = frame["Month_num"].fillna(frame["Month_num"].mode().iloc[0])
-
-    frame["TotalSessionDuration"] = (
-        frame["Administrative_Duration"] + frame["Informational_Duration"] + frame["ProductRelated_Duration"]
-    )
-    frame["ProductInfoRatio"] = frame["ProductRelated"] / (frame["Informational"] + 1)
-    frame["EngagementScore"] = frame["PageValues"] / (frame["TotalSessionDuration"] + 1)
-    frame["Month_sin"] = np.sin(2 * np.pi * frame["Month_num"] / 12.0)
-    frame["Month_cos"] = np.cos(2 * np.pi * frame["Month_num"] / 12.0)
-    frame = frame.drop(columns=["Month", "Month_num"], errors="ignore")
-    return frame[MODEL_INPUT_COLUMNS].copy()
-
-
 def render_data_lab(raw_df: pd.DataFrame, processed_df: pd.DataFrame, target: pd.Series) -> None:
     make_title(
         "Data Lab",
@@ -931,27 +890,17 @@ def render_prediction_studio(raw_df: pd.DataFrame, model: LogisticRegression, pr
 def render_serving_hub(raw_df: pd.DataFrame, model: LogisticRegression, preprocessor) -> None:
     make_title(
         "Serving Hub",
-        "Production-style serving interface: real-time prediction, decision policy, and batch inference with exportable results.",
+        "Production-style serving interface focused on real-time prediction, decision policy, and API contract.",
     )
 
     st.markdown("### Serving Modes")
-    rt_col, batch_col, policy_col = st.columns(3)
+    rt_col, policy_col, api_col = st.columns(3)
     with rt_col:
         st.markdown(
             """
             <div class='mini-card'>
                 <h4>Real-time API</h4>
                 <div class='step-text'>One visitor session in, one purchase intent score out, with millisecond-level latency.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with batch_col:
-        st.markdown(
-            """
-            <div class='mini-card'>
-                <h4>Batch Inference</h4>
-                <div class='step-text'>Upload multiple sessions, score all, and download a result file for campaign operations.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -966,8 +915,18 @@ def render_serving_hub(raw_df: pd.DataFrame, model: LogisticRegression, preproce
             """,
             unsafe_allow_html=True,
         )
+    with api_col:
+        st.markdown(
+            """
+            <div class='mini-card'>
+                <h4>SLA Focus</h4>
+                <div class='step-text'>Latency is tracked per request to support real-time targeting and user experience quality.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    tabs = st.tabs(["Real-time Request", "Batch Scoring", "API Contract"])
+    tabs = st.tabs(["Real-time Request", "API Contract"])
 
     with tabs[0]:
         st.markdown("#### Real-time Request Simulator")
@@ -1048,47 +1007,6 @@ def render_serving_hub(raw_df: pd.DataFrame, model: LogisticRegression, preproce
             st.code(json.dumps(response, indent=2), language="json")
 
     with tabs[1]:
-        st.markdown("#### Batch Scoring")
-        st.write("Upload a CSV with raw serving columns and get predictions for all rows.")
-        st.caption("Required columns: " + ", ".join(SERVING_RAW_INPUT_COLUMNS))
-
-        uploaded = st.file_uploader("Upload batch CSV", type=["csv"], key="batch_upload")
-        threshold_batch = st.slider("Batch decision threshold", 0.05, 0.95, 0.50, 0.01, key="batch_threshold")
-
-        if uploaded is not None:
-            try:
-                batch_df = pd.read_csv(uploaded)
-                serving_frame = prepare_serving_frame_from_raw(batch_df)
-
-                t0 = time.perf_counter()
-                transformed = preprocessor.transform(serving_frame)
-                proba = model.predict_proba(transformed)[:, 1]
-                latency_ms = (time.perf_counter() - t0) * 1000.0
-
-                result_df = batch_df.copy()
-                result_df["purchase_probability"] = proba
-                result_df["decision"] = np.where(proba >= threshold_batch, "purchase", "no_purchase")
-
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.metric("Rows scored", f"{len(result_df):,}")
-                with c2:
-                    st.metric("Avg probability", f"{result_df['purchase_probability'].mean():.2%}")
-                with c3:
-                    st.metric("Batch latency", f"{latency_ms:.2f} ms")
-
-                st.dataframe(result_df.head(20), use_container_width=True)
-                csv_bytes = result_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    "Download scored results",
-                    data=csv_bytes,
-                    file_name="batch_predictions.csv",
-                    mime="text/csv",
-                )
-            except Exception as exc:
-                st.error(f"Batch scoring failed: {exc}")
-
-    with tabs[2]:
         st.markdown("#### API Contract (example)")
         request_example = {
             "Administrative": 2,
