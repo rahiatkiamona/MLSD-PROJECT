@@ -6,4 +6,5 @@ __pycache__/
 .streamlit/
 .vscode/
 something.ipynb
+!.streamlit/config.toml
 
