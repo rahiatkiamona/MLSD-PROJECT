@@ -153,9 +153,9 @@ def predict_form(
     raw_df = service._load_raw()
 
     return templates.TemplateResponse(
-        request=request,
         name="index.html",
         context={
+            "request": request,
             "metrics": metrics,
             "drift_top_json": json.dumps(drift_top),
             "target_counts_json": json.dumps(target_counts),
