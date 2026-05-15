@@ -219,3 +219,5 @@ Duplicates are kept (reported only).
 OperatingSystems, Region, TrafficType treated as categorical (encoded), even if stored as numbers in CSV.
 Month handled via cyclic features (Month_sin, Month_cos) and original month text removed.
 Pipeline is versioned and artifact-driven (v1).
+
+

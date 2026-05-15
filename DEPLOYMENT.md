@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This project is built as a Streamlit website. The easiest deployment path is Streamlit Community Cloud.
+This project is built as a custom FastAPI machine learning system (no Streamlit).
 
 ## 1. Push the code to GitHub
 The repository is already connected to:
@@ -9,17 +9,25 @@ The repository is already connected to:
 
 Make sure these files are in the repo:
 - `app.py`
-- `dashboard_site.py`
+- `ml_system/service.py`
+- `templates/index.html`
+- `static/style.css`
 - `requirements.txt`
 - `README.md`
-- `artifacts/v1/`
+- `artifacts/v*/`
+- `Dockerfile`
+- `render.yaml`
 
-## 2. Deploy on Streamlit Community Cloud
-1. Go to https://share.streamlit.io/
-2. Sign in with GitHub.
-3. Choose your repository: `rahiatkiamona/MLSD-PROJECT`.
-4. Set the main file path to `app.py`.
-5. Click Deploy.
+## 2. Deploy on Render (recommended)
+1. Go to https://render.com/ and connect GitHub.
+2. Create a new **Web Service** from `rahiatkiamona/MLSD-PROJECT`.
+3. Render will detect `render.yaml` / `Dockerfile`.
+4. Deploy and open the generated public URL.
+
+Alternative platforms:
+- Railway
+- Fly.io
+- Any Docker-compatible cloud
 
 ## 3. What the online app will do
 - Show the project dashboard
@@ -30,8 +38,12 @@ Make sure these files are in the repo:
 
 ## 4. Local run
 ```bash
-streamlit run app.py
+uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-## 5. If you want a custom deployment later
-You can also deploy the same app on Render, Railway, or Docker-based hosting. The repo already has the Streamlit entry point, so the app can be moved with minimal changes.
+## 5. API endpoints
+- `GET /health`
+- `GET /api/versions`
+- `POST /api/version/{version}`
+- `POST /api/predict`
+- `POST /api/predict-batch`

@@ -1,0 +1,17 @@
+feature,psi,drift_flag
+Month_cos,12.6993,True
+Month_sin,11.6717,True
+SpecialDay,1.4748,True
+ProductRelated,0.093,False
+ProductRelated_Duration,0.0919,False
+TotalSessionDuration,0.0904,False
+ProductInfoRatio,0.0554,False
+ExitRates,0.0525,False
+BounceRates,0.04,False
+Informational,0.0153,False
+Administrative,0.0087,False
+Informational_Duration,0.0061,False
+Administrative_Duration,0.0041,False
+EngagementScore,0.004,False
+PageValues,0.0004,False
+Weekend,0.0,False

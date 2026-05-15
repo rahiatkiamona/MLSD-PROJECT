@@ -1,19 +1,23 @@
-# Online Shoppers Purchase Intent Dashboard
+# Online Shoppers Purchase Intent System
 
-A calm Streamlit dashboard that visualizes the full MLSD project for the Online Shoppers Purchasing Intention dataset.
+A custom ML web system (FastAPI + HTML/CSS/JS) for the Online Shoppers Purchasing Intention dataset.
 
-## What it shows
+## What it includes
 - Business goal and project stakeholders
 - Raw data to versioned data pipeline
 - Feature engineering and encoding choices
 - Drift monitoring with PSI
-- Saved artifacts and version metadata
-- ML and serving pipeline roadmap
+- Live serving API and prediction form
+- Batch scoring API endpoint
+- Deployment-ready backend architecture
 
 ## Files
-- `app.py` - main dashboard app
+- `app.py` - FastAPI application entrypoint
+- `ml_system/service.py` - ML data/model service layer
+- `templates/index.html` - custom web UI
+- `static/style.css` - custom styling
 - `Data_preprocess.ipynb` - preprocessing notebook
-- `artifacts/v1/` - saved pipeline outputs
+- `artifacts/v*/` - versioned saved outputs
 
 ## Run it
 1. Install dependencies:
@@ -22,14 +26,18 @@ A calm Streamlit dashboard that visualizes the full MLSD project for the Online 
 pip install -r requirements.txt
 ```
 
-2. Start the app:
+2. Start the system:
 
 ```bash
-streamlit run app.py
+uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-3. Open the local URL shown in the terminal.
+3. Open: `http://localhost:8000`
 
 ## Notes
-- The dashboard loads the real saved artifacts from `artifacts/v1/`.
-- If you re-run the notebook and generate a new version folder, the app can be pointed to that version later.
+- The app uses the latest artifact version automatically and supports switching versions.
+- API endpoints are available for serving and integration:
+	- `POST /api/predict`
+	- `POST /api/predict-batch`
+	- `POST /api/version/{version}`
+	- `GET /health`
