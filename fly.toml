@@ -1,0 +1,33 @@
+# Read this file with "flyctl launch" or "flyctl deploy"
+app = "mlsd-project"
+primary_region = "iad"
+
+[build]
+  builder = "docker"
+
+[deploy]
+  release_command = "echo 'Deploying MLSD System...'"
+
+[env]
+  PYTHONUNBUFFERED = "true"
+
+[[services]]
+  internal_port = 8000
+  processes = ["app"]
+  protocol = "tcp"
+  
+  [services.concurrency]
+    hard_limit = 25
+    soft_limit = 20
+  
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+  
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+[[statics]]
+  guest_path = "/app/static"
+  url_prefix = "/static"
